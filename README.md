@@ -4,7 +4,7 @@ A fast, lightweight, and modern IDE available both as a **standalone macOS Deskt
 
 [![Node Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Electron Ready](https://img.shields.io/badge/macOS-DMG%20%26%20App-blueviolet.svg)](#desktop-app-and-dmg-packaging)
+[![Download DMG](https://img.shields.io/badge/Download-macOS%20DMG-blue)](https://github.com/TatvagnaTandel/S-IDE/releases/download/v1.0.0/S-IDE-1.0.0-arm64.dmg)
 [![Tests Passing](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing-and-verification)
 
 ---
@@ -25,12 +25,21 @@ A fast, lightweight, and modern IDE available both as a **standalone macOS Deskt
 
 ## Quick Start
 
-### Prerequisites
+### Download the Desktop App (macOS)
+
+Download the ready-to-use installer from [GitHub Releases](https://github.com/TatvagnaTandel/S-IDE/releases/latest):
+- [S-IDE-1.0.0-arm64.dmg](https://github.com/TatvagnaTandel/S-IDE/releases/download/v1.0.0/S-IDE-1.0.0-arm64.dmg) (Apple Silicon)
+
+Double-click the downloaded `.dmg` and drag **S-IDE** into your Applications folder.
+
+### Run from Source
+
+#### Prerequisites
 
 - Node.js `>= 20.0.0`
 - npm or pnpm
 
-### 1. Run the Desktop App (macOS)
+#### 1. Run the Desktop App (macOS)
 
 ```bash
 # Clone the repository
@@ -44,7 +53,7 @@ pnpm install # or npm install
 npm run desktop
 ```
 
-### 2. Build the macOS DMG and App Bundle
+#### 2. Build the macOS DMG and App Bundle
 
 Package S-IDE into a distributable `.dmg` disk image and `.app` bundle:
 
@@ -56,7 +65,7 @@ Output files will be generated in `dist/`:
 - `dist/S-IDE-1.0.0-arm64.dmg` (Drag-and-drop macOS installer)
 - `dist/mac-arm64/S-IDE.app` (Direct macOS application bundle)
 
-### 3. Run in Browser
+#### 3. Run in Browser
 
 ```bash
 # Start local preview server
