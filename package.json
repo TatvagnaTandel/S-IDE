@@ -1,0 +1,29 @@
+{
+  "name": "s-ide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A lightweight, zero-dependency browser IDE with tabs, code editor, file explorer, and terminal.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node --check app.js && node --check server.js && node scripts/build-check.js",
+    "check": "npm run build",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TatvagnaTandel/S-IDE.git"
+  },
+  "keywords": [
+    "ide",
+    "browser-ide",
+    "code-editor",
+    "web-editor",
+    "javascript"
+  ],
+  "author": "Tatvagna Tandel <tatvagna23@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
