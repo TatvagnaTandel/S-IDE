@@ -4,26 +4,26 @@ A fast, lightweight, and modern IDE available both as a **standalone macOS Deskt
 
 [![Node Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Electron Ready](https://img.shields.io/badge/macOS-DMG%20%26%20App-blueviolet.svg)](#desktop-app--dmg-packaging)
-[![Tests Passing](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing--verification)
+[![Electron Ready](https://img.shields.io/badge/macOS-DMG%20%26%20App-blueviolet.svg)](#desktop-app-and-dmg-packaging)
+[![Tests Passing](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing-and-verification)
 
 ---
 
-## ✨ Features
+## Features
 
-- **🖥️ Standalone macOS App & DMG**: Packaged with Electron and electron-builder, featuring native macOS titlebar traffic lights, native app menus, and window management.
-- **📁 Real Local Filesystem**: Open any folder from your Mac via native dialogs (<kbd>⌘ O</kbd>), view real directory trees, edit, and save files directly to disk (<kbd>⌘ S</kbd>).
-- **💻 Live Interactive Shell Terminal**: Integrated terminal connected directly to your system's live shell (`/bin/zsh`) in the desktop app. Run real commands like `git`, `python`, `npm`, `cargo`, and system utilities.
-- **⚡ Dual Mode (Desktop & Web)**: Run locally as a desktop app or host the static front end via the zero-dependency Node.js HTTP server.
-- **📝 Multi-Tab Code Editor**: Tab strip with dirty-state change tracking, line numbers, real-time minimap preview, and cursor coordinate status.
-- **⌨️ Quick Open & Command Palette**: Press <kbd>⌘ P</kbd> / <kbd>Ctrl P</kbd> to quickly search files, switch tabs, toggle panels, or trigger workspace actions.
-- **💾 Local Persistence**: Workspaces and editor states automatically persist across page reloads and sessions using browser `localStorage`.
-- **📱 Responsive Design**: Seamless desktop, tablet, and mobile interface with adaptive activity navigation.
-- **🐳 Docker Ready**: Reproducible Alpine-based containerization out of the box.
+- **Standalone macOS App and DMG**: Packaged with Electron and electron-builder, featuring native macOS titlebar traffic lights, native app menus, and window management.
+- **Real Local Filesystem**: Open any folder from your Mac via native dialogs (<kbd>⌘ O</kbd>), view real directory trees, edit, and save files directly to disk (<kbd>⌘ S</kbd>).
+- **Live Interactive Shell Terminal**: Integrated terminal connected directly to your system's live shell (`/bin/zsh`) in the desktop app. Run real commands like `git`, `python`, `node`, `npm`, `cargo`, and system utilities.
+- **Dual Mode (Desktop and Web)**: Run locally as a desktop app or host the static front end via the zero-dependency Node.js HTTP server.
+- **Multi-Tab Code Editor**: Tab strip with dirty-state change tracking, line numbers, real-time minimap preview, and cursor coordinate status.
+- **Quick Open and Command Palette**: Press <kbd>⌘ P</kbd> / <kbd>Ctrl P</kbd> to quickly search files, switch tabs, toggle panels, or trigger workspace actions.
+- **Local Persistence**: Workspaces and editor states automatically persist across page reloads and sessions using browser `localStorage`.
+- **Responsive Design**: Seamless desktop, tablet, and mobile interface with adaptive activity navigation.
+- **Docker Ready**: Reproducible Alpine-based containerization out of the box.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -44,7 +44,7 @@ pnpm install # or npm install
 npm run desktop
 ```
 
-### 2. Build the macOS DMG & App Bundle
+### 2. Build the macOS DMG and App Bundle
 
 Package S-IDE into a distributable `.dmg` disk image and `.app` bundle:
 
@@ -66,7 +66,7 @@ npm start
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Shortcut | Action |
 | --- | --- |
@@ -78,7 +78,7 @@ npm start
 
 ---
 
-## 🧪 Testing & Verification
+## Testing and Verification
 
 Run the built-in test suite:
 
@@ -98,7 +98,7 @@ make check
 
 ---
 
-## 🐳 Docker
+## Docker
 
 Run the browser version of S-IDE inside an isolated Docker container:
 
@@ -111,7 +111,7 @@ Then visit `http://localhost:4173`.
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 .
@@ -136,6 +136,6 @@ Then visit `http://localhost:4173`.
 
 ---
 
-## 📄 License
+## License
 
 This project is open-source and available under the [MIT License](LICENSE).
