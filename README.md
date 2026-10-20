@@ -1,22 +1,23 @@
 # S-IDE
 
-A fast, lightweight, and zero-dependency in-browser IDE with a tabbed code editor, file explorer, command palette, and interactive terminal.
+A fast, lightweight, and modern IDE available both as a **standalone macOS Desktop App (.dmg)** and an in-browser code editor with native local filesystem access, tabbed editing, and an integrated terminal.
 
 [![Node Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](#architecture)
-[![Tests Passing](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing)
+[![Electron Ready](https://img.shields.io/badge/macOS-DMG%20%26%20App-blueviolet.svg)](#desktop-app--dmg-packaging)
+[![Tests Passing](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing--verification)
 
 ---
 
 ## ✨ Features
 
-- **⚡ Zero External Dependencies**: Built with pure vanilla HTML, modern CSS, and ES Modules. The preview server uses Node's native `http` module with zero npm packages.
-- **📁 File Explorer & Outline**: Browse workspace files, view symbol outlines (functions, classes, styles), and create new files.
+- **🖥️ Standalone macOS App & DMG**: Packaged with Electron and electron-builder, featuring native macOS titlebar traffic lights, native app menus, and window management.
+- **📁 Real Local Filesystem**: Open any folder from your Mac via native dialogs (<kbd>⌘ O</kbd>), view real directory trees, edit, and save files directly to disk (<kbd>⌘ S</kbd>).
+- **💻 Live Interactive Shell Terminal**: Integrated terminal connected directly to your system's live shell (`/bin/zsh`) in the desktop app. Run real commands like `git`, `python`, `npm`, `cargo`, and system utilities.
+- **⚡ Dual Mode (Desktop & Web)**: Run locally as a desktop app or host the static front end via the zero-dependency Node.js HTTP server.
 - **📝 Multi-Tab Code Editor**: Tab strip with dirty-state change tracking, line numbers, real-time minimap preview, and cursor coordinate status.
-- **💻 Integrated Terminal**: Interactive console simulator with built-in commands (`help`, `ls`, `cat`, `run`, `echo`, `clear`).
-- **⌨️ Quick Open & Command Palette**: Press `⌘ P` or `Ctrl + P` to quickly switch files, toggle panels, or trigger workspace actions.
-- **💾 Local Persistence**: Workspaces and edits automatically persist across page reloads using browser `localStorage`.
+- **⌨️ Quick Open & Command Palette**: Press <kbd>⌘ P</kbd> / <kbd>Ctrl P</kbd> to quickly search files, switch tabs, toggle panels, or trigger workspace actions.
+- **💾 Local Persistence**: Workspaces and editor states automatically persist across page reloads and sessions using browser `localStorage`.
 - **📱 Responsive Design**: Seamless desktop, tablet, and mobile interface with adaptive activity navigation.
 - **🐳 Docker Ready**: Reproducible Alpine-based containerization out of the box.
 
@@ -27,25 +28,41 @@ A fast, lightweight, and zero-dependency in-browser IDE with a tabbed code edito
 ### Prerequisites
 
 - Node.js `>= 20.0.0`
-- npm (or pnpm / yarn)
+- npm or pnpm
 
-### Run Locally
+### 1. Run the Desktop App (macOS)
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/TatvagnaTandel/S-IDE.git
-   cd S-IDE
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/TatvagnaTandel/S-IDE.git
+cd S-IDE
 
-2. **Start the local server:**
-   ```bash
-   npm start
-   ```
+# Install dependencies
+pnpm install # or npm install
 
-3. **Open in your browser:**
-   ```
-   http://localhost:4173
-   ```
+# Launch desktop app
+npm run desktop
+```
+
+### 2. Build the macOS DMG & App Bundle
+
+Package S-IDE into a distributable `.dmg` disk image and `.app` bundle:
+
+```bash
+npm run dist
+```
+
+Output files will be generated in `dist/`:
+- `dist/S-IDE-1.0.0-arm64.dmg` (Drag-and-drop macOS installer)
+- `dist/mac-arm64/S-IDE.app` (Direct macOS application bundle)
+
+### 3. Run in Browser
+
+```bash
+# Start local preview server
+npm start
+# Open http://localhost:4173
+```
 
 ---
 
@@ -53,8 +70,9 @@ A fast, lightweight, and zero-dependency in-browser IDE with a tabbed code edito
 
 | Shortcut | Action |
 | --- | --- |
+| <kbd>⌘ O</kbd> / <kbd>Ctrl O</kbd> | Open Project Folder from local filesystem |
 | <kbd>⌘ P</kbd> / <kbd>Ctrl P</kbd> | Open Command Palette / Quick Open |
-| <kbd>⌘ S</kbd> / <kbd>Ctrl S</kbd> | Save active file buffer |
+| <kbd>⌘ S</kbd> / <kbd>Ctrl S</kbd> | Save active file buffer (to disk or local storage) |
 | <kbd>Ctrl `</kbd> | Toggle bottom terminal panel |
 | <kbd>Esc</kbd> | Dismiss Command Palette or dialogs |
 
@@ -82,7 +100,7 @@ make check
 
 ## 🐳 Docker
 
-Run S-IDE inside an isolated Docker container:
+Run the browser version of S-IDE inside an isolated Docker container:
 
 ```bash
 docker build -t s-ide .
@@ -99,9 +117,12 @@ Then visit `http://localhost:4173`.
 .
 ├── index.html           # Main IDE shell structure and layout
 ├── styles.css           # Dark theme design system and layout styling
-├── app.js               # Client state, virtual filesystem, and editor logic
+├── app.js               # Client state, virtual/real filesystem bridge, and editor logic
 ├── server.js            # Dependency-free static HTTP preview server
-├── package.json         # Project metadata and scripts
+├── electron/
+│   ├── main.cjs         # Electron main process (native menus, dialogs, zsh shell)
+│   └── preload.cjs      # Secure contextBridge IPC layer
+├── package.json         # Project metadata, build configuration, and scripts
 ├── Makefile             # Convenient make shortcuts (start, test, check)
 ├── Dockerfile           # Minimal Node 22 Alpine container setup
 ├── scripts/

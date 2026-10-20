@@ -4,11 +4,14 @@
   "private": true,
   "description": "A lightweight, zero-dependency browser IDE with tabs, code editor, file explorer, and terminal.",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "start": "node server.js",
     "build": "node --check app.js && node --check server.js && node scripts/build-check.js",
     "check": "npm run build",
-    "test": "node --test"
+    "test": "node --test",
+    "desktop": "electron .",
+    "dist": "electron-builder --mac dmg"
   },
   "repository": {
     "type": "git",
@@ -25,5 +28,30 @@
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "build": {
+    "appId": "com.tatvagnatandel.side",
+    "productName": "S-IDE",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3"
   }
 }

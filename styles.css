@@ -102,6 +102,23 @@ svg {
   border-bottom: 1px solid var(--rule);
 }
 
+body.is-electron .titlebar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+body.is-electron .brand-cluster {
+  padding-left: 70px;
+}
+
+body.is-electron .titlebar-actions,
+body.is-electron button,
+body.is-electron input,
+body.is-electron .code-editor,
+body.is-electron .tab-strip {
+  -webkit-app-region: no-drag;
+}
+
 .brand-cluster,
 .titlebar-actions,
 .editor-toolbar,

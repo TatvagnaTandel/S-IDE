@@ -63,6 +63,7 @@ const FILE_META = {
 };
 
 const COMMANDS = [
+  { id: "open-folder", label: "Open folder", hint: "⌘ O", icon: "folder" },
   { id: "open-file", label: "Open file", hint: "⌘ P", icon: "file" },
   { id: "toggle-terminal", label: "Toggle terminal", hint: "Ctrl `", icon: "terminal" },
   { id: "run-project", label: "Run workspace", hint: "", icon: "play" },
@@ -80,6 +81,10 @@ const state = {
   commandIndex: 0,
   commandMatches: [...COMMANDS],
   lastRun: null,
+  workspaceName: "demo-workspace",
+  projectRoot: null,
+  fileTree: null,
+  realFilePaths: {},
 };
 
 let toastTimer;
@@ -106,6 +111,8 @@ const elements = {
   commandList: document.querySelector("#command-list"),
   toast: document.querySelector("#toast"),
   lastRunNote: document.querySelector("#last-run-note"),
+  openFolderButton: document.querySelector("#open-folder-button"),
+  workspaceName: document.querySelector(".workspace-name"),
 };
 
 function escapeHtml(value) {
@@ -192,17 +199,127 @@ function sidebarShell(title, action = "") {
   </div>`;
 }
 
+function renderTreeNodes(nodes, depth = 0) {
+  let html = "";
+  for (const node of nodes) {
+    const pad = depth > 0 ? ` style="padding-left: ${16 + depth * 14}px"` : "";
+    if (node.isDirectory) {
+      html += `<button class="tree-row is-directory" type="button"${pad} data-directory="true">
+        ${svgIcon("folder")}<span class="tree-row-label">${escapeHtml(node.name)}</span>
+      </button>`;
+      if (node.children && node.children.length) {
+        html += renderTreeNodes(node.children, depth + 1);
+      }
+    } else {
+      const isSelected = node.relativePath === state.activeFile ? " is-selected" : "";
+      const dirty = isDirty(node.relativePath) ? ' <span class="dirty-indicator" title="Unsaved changes">●</span>' : "";
+      html += `<button class="tree-row${isSelected}" type="button"${pad} data-file="${escapeHtml(node.relativePath)}">
+        ${fileBadge(node.relativePath)}<span class="tree-row-label">${escapeHtml(node.name)}</span>${dirty}
+      </button>`;
+    }
+  }
+  return html;
+}
+
+async function openFolder() {
+  if (window.electronAPI?.isElectron) {
+    const folderPath = await window.electronAPI.openFolderDialog();
+    if (folderPath) await loadFolder(folderPath);
+  } else if (window.showDirectoryPicker) {
+    try {
+      const dirHandle = await window.showDirectoryPicker();
+      await loadDirectoryHandle(dirHandle);
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        showToast("Could not access folder");
+      }
+    }
+  } else {
+    showToast("Open Folder requires the desktop app");
+  }
+}
+
+async function loadFolder(folderPath) {
+  showToast("Scanning folder...");
+  state.projectRoot = folderPath;
+  const folderName = folderPath.split("/").filter(Boolean).pop() || "project";
+  state.workspaceName = folderName;
+  if (elements.workspaceName) elements.workspaceName.textContent = folderName;
+
+  const rawTree = await window.electronAPI.readDirectory(folderPath);
+  state.realFilePaths = {};
+
+  function processNodes(nodes, parentRel = "") {
+    return nodes.map((n) => {
+      const rel = parentRel ? `${parentRel}/${n.name}` : n.name;
+      if (!n.isDirectory) {
+        state.realFilePaths[rel] = n.path;
+      }
+      return {
+        ...n,
+        relativePath: rel,
+        children: n.children ? processNodes(n.children, rel) : [],
+      };
+    });
+  }
+
+  state.fileTree = processNodes(rawTree);
+  state.files = {};
+  state.originals = {};
+  state.openTabs = [];
+
+  const firstRelPath = Object.keys(state.realFilePaths)[0];
+  if (firstRelPath) {
+    await openFile(firstRelPath);
+  } else {
+    state.activeFile = "";
+    renderTabs();
+    renderEditor();
+  }
+
+  window.electronAPI.startTerminal(folderPath);
+  renderExplorer();
+  showToast(`Opened ${folderName}`);
+}
+
+async function loadDirectoryHandle(dirHandle) {
+  showToast("Opening folder...");
+  state.workspaceName = dirHandle.name;
+  if (elements.workspaceName) elements.workspaceName.textContent = dirHandle.name;
+
+  async function scanHandle(handle, parentRel = "") {
+    const items = [];
+    for await (const [name, entry] of handle.entries()) {
+      if (name.startsWith(".") || name === "node_modules" || name === "dist") continue;
+      const rel = parentRel ? `${parentRel}/${name}` : name;
+      if (entry.kind === "directory") {
+        const children = await scanHandle(entry, rel);
+        items.push({ name, relativePath: rel, isDirectory: true, children });
+      } else {
+        const file = await entry.getFile();
+        const text = await file.text();
+        state.files[rel] = text;
+        state.originals[rel] = text;
+        items.push({ name, relativePath: rel, isDirectory: false });
+      }
+    }
+    return items;
+  }
+
+  state.fileTree = await scanHandle(dirHandle);
+  state.openTabs = [];
+  const firstFile = Object.keys(state.files)[0];
+  if (firstFile) {
+    await openFile(firstFile);
+  }
+  renderExplorer();
+  showToast(`Opened ${dirHandle.name}`);
+}
+
 function renderExplorer() {
-  elements.sidebar.innerHTML = `<div class="sidebar-content">
-    <div class="panel-title-row">
-      <span class="panel-title">Explorer</span>
-      <button class="panel-action" type="button" id="new-file-button" aria-label="Create new file" title="Create new file">${svgIcon("plus")}</button>
-    </div>
-    <button class="workspace-switcher" type="button" id="workspace-switcher">
-      ${svgIcon("folder")}
-      <span>demo-workspace</span>
-    </button>
-    <div class="tree">
+  const treeContent = state.fileTree
+    ? renderTreeNodes(state.fileTree)
+    : `
       <div class="tree-section-title">Workspace files</div>
       <button class="tree-row is-directory" type="button" data-file="src/app.js" data-directory="true">
         ${svgIcon("folder")}<span class="tree-row-label">src</span>
@@ -214,11 +331,24 @@ function renderExplorer() {
         ${svgIcon("folder")}<span class="tree-row-label">tests</span>
       </button>
       ${treeFile("tests/smoke.test.js", true)}
+    `;
+
+  elements.sidebar.innerHTML = `<div class="sidebar-content">
+    <div class="panel-title-row">
+      <span class="panel-title">Explorer</span>
+      <button class="panel-action" type="button" id="new-file-button" aria-label="Create new file" title="Create new file">${svgIcon("plus")}</button>
+    </div>
+    <button class="workspace-switcher" type="button" id="workspace-switcher" title="Click to open a project folder">
+      ${svgIcon("folder")}
+      <span>${escapeHtml(state.workspaceName || "demo-workspace")}</span>
+    </button>
+    <div class="tree">
+      ${treeContent}
     </div>
     <div class="sidebar-spacer"></div>
     <div class="sidebar-footer-note">
       ${svgIcon("symbol")}
-      <span>Everything here stays in this workspace.</span>
+      <span>${window.electronAPI?.isElectron ? "Connected to local filesystem" : "Local in-memory workspace"}</span>
     </div>
   </div>`;
 
@@ -229,7 +359,7 @@ function renderExplorer() {
     });
   });
   elements.sidebar.querySelector("#new-file-button").addEventListener("click", createNewFile);
-  elements.sidebar.querySelector("#workspace-switcher").addEventListener("click", () => showToast("demo-workspace is the active workspace"));
+  elements.sidebar.querySelector("#workspace-switcher").addEventListener("click", openFolder);
 }
 
 function treeFile(path, child) {
@@ -458,10 +588,21 @@ function focusLine(lineNumber) {
   elements.editor.scrollTop = Math.max(0, (lineNumber - 3) * lineHeight);
 }
 
-function openFile(path) {
-  if (!state.files[path]) {
-    state.files[path] = "";
-    state.originals[path] = "";
+async function openFile(path) {
+  if (state.files[path] === undefined) {
+    if (window.electronAPI?.isElectron && state.realFilePaths[path]) {
+      try {
+        const content = await window.electronAPI.readFile(state.realFilePaths[path]);
+        state.files[path] = content;
+        state.originals[path] = content;
+      } catch (err) {
+        state.files[path] = `// Error loading file: ${err.message}`;
+        state.originals[path] = state.files[path];
+      }
+    } else {
+      state.files[path] = "";
+      state.originals[path] = "";
+    }
   }
   if (!state.openTabs.includes(path)) state.openTabs.push(path);
   state.activeFile = path;
@@ -484,8 +625,16 @@ function closeTab(path) {
   renderOpenEditors();
 }
 
-function saveCurrentFile() {
+async function saveCurrentFile() {
   state.originals[state.activeFile] = state.files[state.activeFile];
+  if (window.electronAPI?.isElectron && state.realFilePaths[state.activeFile]) {
+    try {
+      await window.electronAPI.writeFile(state.realFilePaths[state.activeFile], state.files[state.activeFile]);
+    } catch (err) {
+      showToast(`Error saving to disk: ${err.message}`);
+      return;
+    }
+  }
   persistState();
   renderTabs();
   renderOpenEditors();
@@ -493,7 +642,7 @@ function saveCurrentFile() {
   showToast(`Saved ${state.activeFile}`);
 }
 
-function createNewFile() {
+async function createNewFile() {
   const suggested = "src/new-file.js";
   const path = window.prompt("Create a file in this workspace", suggested);
   if (!path) return;
@@ -505,6 +654,15 @@ function createNewFile() {
   if (!state.files[cleanPath]) {
     state.files[cleanPath] = "";
     state.originals[cleanPath] = "";
+  }
+  if (window.electronAPI?.isElectron && state.projectRoot) {
+    const fullPath = `${state.projectRoot}/${cleanPath}`;
+    try {
+      await window.electronAPI.createFile(fullPath, "");
+      state.realFilePaths[cleanPath] = fullPath;
+    } catch (err) {
+      console.error(err);
+    }
   }
   openFile(cleanPath);
   showToast(`Created ${cleanPath}`);
@@ -545,6 +703,12 @@ function runProject() {
 function runTerminalCommand(command) {
   const normalized = command.trim();
   if (!normalized) return;
+
+  if (window.electronAPI?.isElectron) {
+    window.electronAPI.sendTerminalInput(`${command}\n`);
+    return;
+  }
+
   appendTerminal([{ text: `$ ${normalized}`, className: "command" }]);
 
   if (normalized === "clear") {
@@ -623,6 +787,10 @@ function renderCommandList() {
 
 function executeCommand(id) {
   closeCommandPalette();
+  if (id === "open-folder") {
+    openFolder();
+    return;
+  }
   if (id === "open-file") {
     renderSidebar("explorer");
     showToast("Choose a file from Explorer");
@@ -673,6 +841,32 @@ function restoreState() {
   }
 }
 
+function initElectronBridge() {
+  if (!window.electronAPI?.isElectron) return;
+
+  document.body.classList.add("is-electron");
+
+  window.electronAPI.onTerminalOutput((chunk) => {
+    const clean = chunk.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
+    if (!clean) return;
+    const lines = clean.split("\n");
+    const formatted = lines
+      .filter((l) => l.length > 0)
+      .map((text) => ({ text, className: "" }));
+    if (formatted.length) appendTerminal(formatted);
+  });
+
+  window.electronAPI.onMenuAction((action) => {
+    if (action === "open-folder") openFolder();
+    if (action === "new-file") createNewFile();
+    if (action === "save-file") saveCurrentFile();
+    if (action === "toggle-terminal") elements.terminal.classList.toggle("is-collapsed");
+    if (action === "clear-terminal") clearTerminal();
+  });
+
+  window.electronAPI.startTerminal(state.projectRoot || "");
+}
+
 function bindEvents() {
   document.querySelectorAll(".rail-button[data-panel]").forEach((button) => button.addEventListener("click", () => renderSidebar(button.dataset.panel)));
   document.querySelector("#command-trigger").addEventListener("click", openCommandPalette);
@@ -684,9 +878,13 @@ function bindEvents() {
   document.querySelector("#more-editor-button").addEventListener("click", openCommandPalette);
   document.querySelector("#settings-button").addEventListener("click", () => showToast("Editor settings are local to this workspace"));
   document.querySelector("#help-button").addEventListener("click", () => showToast("Try ⌘ P, ⌘ S, or the Run button"));
-  document.querySelector("#workspace-menu-button").addEventListener("click", () => showToast("demo-workspace is the active workspace"));
-  document.querySelector("#profile-button").addEventListener("click", () => showToast("Profile controls are not connected"));
+  document.querySelector("#workspace-menu-button").addEventListener("click", openFolder);
+  document.querySelector("#profile-button").addEventListener("click", () => showToast("S-IDE · Tatvagna Tandel"));
   document.querySelectorAll("[data-terminal-tab]").forEach((tab) => tab.addEventListener("click", () => setTerminalMode(tab.dataset.terminalTab)));
+
+  if (elements.openFolderButton) {
+    elements.openFolderButton.addEventListener("click", openFolder);
+  }
 
   elements.editor.addEventListener("input", () => {
     state.files[state.activeFile] = elements.editor.value;
@@ -738,6 +936,10 @@ function bindEvents() {
 
   document.addEventListener("keydown", (event) => {
     const modifier = event.metaKey || event.ctrlKey;
+    if (modifier && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      openFolder();
+    }
     if (modifier && event.key.toLowerCase() === "p") {
       event.preventDefault();
       openCommandPalette();
@@ -755,6 +957,7 @@ function bindEvents() {
   });
 }
 
+initElectronBridge();
 restoreState();
 bindEvents();
 renderSidebar("explorer");
