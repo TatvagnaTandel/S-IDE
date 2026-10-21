@@ -135,15 +135,53 @@
 
             <div class="editor-surface">
               <div class="line-number-column" id="line-numbers" aria-hidden="true"></div>
-              <textarea
-                class="code-editor"
-                id="code-editor"
-                spellcheck="false"
-                autocapitalize="off"
-                autocomplete="off"
-                aria-label="Code editor"
-              ></textarea>
+              <div class="editor-stage">
+                <pre class="syntax-backdrop" id="syntax-backdrop" aria-hidden="true"><code id="syntax-code"></code></pre>
+                <textarea
+                  class="code-editor"
+                  id="code-editor"
+                  spellcheck="false"
+                  autocapitalize="off"
+                  autocomplete="off"
+                  aria-label="Code editor"
+                ></textarea>
+              </div>
               <div class="minimap" aria-hidden="true" id="minimap"></div>
+
+              <div class="find-widget is-hidden" id="find-widget" role="search" aria-label="Find and replace">
+                <div class="find-widget-row">
+                  <button class="find-toggle-replace" type="button" id="find-toggle-replace" title="Toggle Replace (Cmd+H)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+                  </button>
+                  <div class="find-input-wrapper">
+                    <input id="find-input" type="text" placeholder="Find" autocomplete="off" spellcheck="false" />
+                    <span class="find-match-count" id="find-match-count">No results</span>
+                    <button class="find-option-btn" type="button" id="find-case-toggle" title="Match Case (Alt+C)">Aa</button>
+                    <button class="find-option-btn" type="button" id="find-word-toggle" title="Match Whole Word (Alt+W)">\b</button>
+                  </div>
+                  <div class="find-nav-buttons">
+                    <button class="toolbar-icon" type="button" id="find-prev" title="Previous Match (Shift+Enter)">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+                    </button>
+                    <button class="toolbar-icon" type="button" id="find-next" title="Next Match (Enter)">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
+                    <button class="toolbar-icon" type="button" id="find-close" title="Close (Escape)">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="replace-widget-row is-hidden" id="replace-widget-row">
+                  <div class="replace-spacer"></div>
+                  <div class="find-input-wrapper">
+                    <input id="replace-input" type="text" placeholder="Replace" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="replace-actions">
+                    <button class="replace-button" type="button" id="replace-one" title="Replace (Enter)">Replace</button>
+                    <button class="replace-button" type="button" id="replace-all" title="Replace All (Cmd+Alt+Enter)">Replace All</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <section class="terminal-panel" id="terminal-panel" aria-label="Terminal">
@@ -246,6 +284,88 @@
         <div class="palette-heading" id="command-palette-title">Commands</div>
         <div class="command-list" id="command-list"></div>
         <div class="palette-footer"><span>↑ ↓ to navigate</span><span>Enter to run</span></div>
+      </section>
+    <div class="modal-backdrop is-hidden" id="diff-modal" role="presentation">
+      <section class="diff-dialog" role="dialog" aria-modal="true" aria-labelledby="diff-title">
+        <div class="diff-header">
+          <div class="diff-title-row">
+            <span class="diff-badge">DIFF</span>
+            <strong id="diff-title">styles.css</strong>
+            <span class="diff-sub">(Working Tree vs Original)</span>
+          </div>
+          <button class="toolbar-icon" type="button" id="diff-close" title="Close Diff (Escape)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
+        </div>
+        <div class="diff-body" id="diff-body"></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop is-hidden" id="settings-modal" role="presentation">
+      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+        <div class="settings-header">
+          <h2 id="settings-dialog-title">Settings</h2>
+          <button class="toolbar-icon" type="button" id="settings-close" title="Close Settings (Escape)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-group">
+            <div class="settings-group-title">Editor</div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label for="setting-font-size">Font Size</label>
+                <span>Controls the font size in pixels.</span>
+              </div>
+              <select class="setting-select" id="setting-font-size">
+                <option value="12">12px</option>
+                <option value="13" selected>13px (Default)</option>
+                <option value="14">14px</option>
+                <option value="16">16px</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label for="setting-tab-size">Tab Size</label>
+                <span>The number of spaces a tab is equal to.</span>
+              </div>
+              <select class="setting-select" id="setting-tab-size">
+                <option value="2" selected>2 spaces</option>
+                <option value="4">4 spaces</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label for="setting-word-wrap">Word Wrap</label>
+                <span>Controls whether lines wrap to the viewport width.</span>
+              </div>
+              <input type="checkbox" class="setting-checkbox" id="setting-word-wrap" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label for="setting-minimap">Minimap</label>
+                <span>Controls whether the code overview minimap is shown.</span>
+              </div>
+              <input type="checkbox" class="setting-checkbox" id="setting-minimap" checked />
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-title">Appearance</div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label for="setting-theme">Color Theme</label>
+                <span>Select the workbench color theme.</span>
+              </div>
+              <select class="setting-select" id="setting-theme">
+                <option value="dark-plus" selected>Dark+ (Default)</option>
+                <option value="high-contrast">High Contrast</option>
+                <option value="monokai">Monokai Dark</option>
+                <option value="midnight">Midnight Navy</option>
+              </select>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
 

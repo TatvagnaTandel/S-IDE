@@ -63,12 +63,27 @@ const FILE_META = {
 };
 
 const COMMANDS = [
-  { id: "open-folder", label: "Open folder", hint: "⌘ O", icon: "folder" },
-  { id: "open-file", label: "Open file", hint: "⌘ P", icon: "file" },
-  { id: "toggle-terminal", label: "Toggle terminal", hint: "Ctrl `", icon: "terminal" },
-  { id: "run-project", label: "Run workspace", hint: "", icon: "play" },
-  { id: "focus-explorer", label: "Focus explorer", hint: "", icon: "folder" },
-  { id: "new-file", label: "Create new file", hint: "", icon: "plus" },
+  { id: "open-folder", label: "File: Open Folder", hint: "⌘ O", icon: "folder" },
+  { id: "open-file", label: "File: Open File / Quick Open", hint: "⌘ P", icon: "file" },
+  { id: "find-in-file", label: "Edit: Find", hint: "⌘ F", icon: "search" },
+  { id: "replace-in-file", label: "Edit: Replace", hint: "⌘ H", icon: "search" },
+  { id: "go-to-line", label: "Go to Line...", hint: "Ctrl G", icon: "file" },
+  { id: "toggle-word-wrap", label: "View: Toggle Word Wrap", hint: "Alt Z", icon: "file" },
+  { id: "open-settings", label: "Preferences: Open Settings", hint: "⌘ ,", icon: "symbol" },
+  { id: "toggle-terminal", label: "View: Toggle Terminal", hint: "Ctrl `", icon: "terminal" },
+  { id: "run-project", label: "Run: Run Workspace Tests", hint: "", icon: "play" },
+  { id: "focus-explorer", label: "View: Show Explorer", hint: "", icon: "folder" },
+  { id: "new-file", label: "File: Create New File", hint: "", icon: "plus" },
+];
+
+const AVAILABLE_EXTENSIONS = [
+  { id: "python", name: "Python", desc: "Rich support for the Python language including linting, debugging, and code navigation.", downloads: "114M", rating: "4.8", icon: "symbol" },
+  { id: "prettier", name: "Prettier - Code formatter", desc: "Opinionated code formatting for JavaScript, CSS, HTML, and more.", downloads: "54M", rating: "4.7", icon: "file" },
+  { id: "eslint", name: "ESLint", desc: "Integrates ESLint JavaScript into S-IDE to find and fix syntax problems in code.", downloads: "42M", rating: "4.6", icon: "symbol" },
+  { id: "gitlens", name: "GitLens — Git supercharged", desc: "Supercharge Git within S-IDE. Visualize code authorship at a glance.", downloads: "38M", rating: "4.9", icon: "folder" },
+  { id: "docker", name: "Docker", desc: "Create, manage, and debug containerized applications with syntax support.", downloads: "31M", rating: "4.7", icon: "terminal" },
+  { id: "tailwind", name: "Tailwind CSS IntelliSense", desc: "Intelligent CSS tooling with autocomplete and class linting.", downloads: "21M", rating: "4.8", icon: "symbol" },
+  { id: "rust", name: "rust-analyzer", desc: "Modular compiler frontend for the Rust language with full language server support.", downloads: "9M", rating: "4.9", icon: "terminal" },
 ];
 
 const state = {
@@ -85,6 +100,22 @@ const state = {
   projectRoot: null,
   fileTree: null,
   realFilePaths: {},
+  settings: {
+    fontSize: 13,
+    tabSize: 2,
+    wordWrap: false,
+    showMinimap: true,
+    theme: "dark-plus",
+  },
+  installedExtensions: new Set(["prettier", "eslint"]),
+  find: {
+    query: "",
+    replace: "",
+    matchCase: false,
+    matchWord: false,
+    matches: [],
+    currentIndex: -1,
+  },
 };
 
 let toastTimer;
@@ -94,6 +125,9 @@ const elements = {
   tabStrip: document.querySelector("#tab-strip"),
   breadcrumbs: document.querySelector("#breadcrumbs"),
   editor: document.querySelector("#code-editor"),
+  editorSurface: document.querySelector(".editor-surface"),
+  syntaxBackdrop: document.querySelector("#syntax-backdrop"),
+  syntaxCode: document.querySelector("#syntax-code"),
   lineNumbers: document.querySelector("#line-numbers"),
   minimap: document.querySelector("#minimap"),
   outline: document.querySelector("#outline-list"),
@@ -113,6 +147,30 @@ const elements = {
   lastRunNote: document.querySelector("#last-run-note"),
   openFolderButton: document.querySelector("#open-folder-button"),
   workspaceName: document.querySelector(".workspace-name"),
+  findWidget: document.querySelector("#find-widget"),
+  findInput: document.querySelector("#find-input"),
+  replaceInput: document.querySelector("#replace-input"),
+  findMatchCount: document.querySelector("#find-match-count"),
+  findCaseToggle: document.querySelector("#find-case-toggle"),
+  findWordToggle: document.querySelector("#find-word-toggle"),
+  findPrev: document.querySelector("#find-prev"),
+  findNext: document.querySelector("#find-next"),
+  findClose: document.querySelector("#find-close"),
+  findToggleReplace: document.querySelector("#find-toggle-replace"),
+  replaceWidgetRow: document.querySelector("#replace-widget-row"),
+  replaceOne: document.querySelector("#replace-one"),
+  replaceAll: document.querySelector("#replace-all"),
+  diffModal: document.querySelector("#diff-modal"),
+  diffTitle: document.querySelector("#diff-title"),
+  diffBody: document.querySelector("#diff-body"),
+  diffClose: document.querySelector("#diff-close"),
+  settingsModal: document.querySelector("#settings-modal"),
+  settingsClose: document.querySelector("#settings-close"),
+  settingFontSize: document.querySelector("#setting-font-size"),
+  settingTabSize: document.querySelector("#setting-tab-size"),
+  settingWordWrap: document.querySelector("#setting-word-wrap"),
+  settingMinimap: document.querySelector("#setting-minimap"),
+  settingTheme: document.querySelector("#setting-theme"),
 };
 
 function escapeHtml(value) {
@@ -122,6 +180,142 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function highlightJs(code) {
+  const regex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b(?:const|let|var|function|return|if|else|for|while|switch|case|break|continue|try|catch|finally|throw|class|extends|import|export|from|default|async|await|yield|new|typeof|instanceof|void|delete|in|of)\b)|(\b(?:true|false|null|undefined)\b)|(\b\d+(?:\.\d+)?\b)|(\b[a-zA-Z_$][\w$]*(?=\s*\())|(\b(?:console|document|window|Math|JSON|Promise|Array|Object|String|Number|Boolean|Set|Map|Error)\b)/g;
+  let lastIndex = 0;
+  let result = "";
+  let match;
+  while ((match = regex.exec(code)) !== null) {
+    if (match.index > lastIndex) {
+      result += escapeHtml(code.slice(lastIndex, match.index));
+    }
+    const [full, comment, str, kw, bool, num, fn, type] = match;
+    if (comment) result += `<span class="tok-com">${escapeHtml(full)}</span>`;
+    else if (str) result += `<span class="tok-str">${escapeHtml(full)}</span>`;
+    else if (kw) result += `<span class="tok-kw">${escapeHtml(full)}</span>`;
+    else if (bool) result += `<span class="tok-bool">${escapeHtml(full)}</span>`;
+    else if (num) result += `<span class="tok-num">${escapeHtml(full)}</span>`;
+    else if (fn) result += `<span class="tok-fn">${escapeHtml(full)}</span>`;
+    else if (type) result += `<span class="tok-type">${escapeHtml(full)}</span>`;
+    else result += escapeHtml(full);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < code.length) {
+    result += escapeHtml(code.slice(lastIndex));
+  }
+  return result;
+}
+
+function highlightCss(code) {
+  const regex = /(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(@[a-zA-Z-]+)|([.#][a-zA-Z0-9_-]+)|([a-zA-Z-]+)(?=\s*:)|(#[a-fA-F0-9]{3,8}|\b\d+(?:px|em|rem|%|vh|vw|s|ms|deg)?\b)|(:root|var|calc|rgba?|hsla?)/g;
+  let lastIndex = 0;
+  let result = "";
+  let match;
+  while ((match = regex.exec(code)) !== null) {
+    if (match.index > lastIndex) {
+      result += escapeHtml(code.slice(lastIndex, match.index));
+    }
+    const [full, com, str, at, sel, prop, val, fn] = match;
+    if (com) result += `<span class="tok-com">${escapeHtml(full)}</span>`;
+    else if (str) result += `<span class="tok-str">${escapeHtml(full)}</span>`;
+    else if (at) result += `<span class="tok-kw">${escapeHtml(full)}</span>`;
+    else if (sel) result += `<span class="tok-fn">${escapeHtml(full)}</span>`;
+    else if (prop) result += `<span class="tok-attr">${escapeHtml(full)}</span>`;
+    else if (val) result += `<span class="tok-num">${escapeHtml(full)}</span>`;
+    else if (fn) result += `<span class="tok-type">${escapeHtml(full)}</span>`;
+    else result += escapeHtml(full);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < code.length) {
+    result += escapeHtml(code.slice(lastIndex));
+  }
+  return result;
+}
+
+function highlightHtml(code) {
+  const regex = /(<!--[\s\S]*?-->)|(<\/?[a-zA-Z0-9-]+)|([a-zA-Z-]+)(?=\s*=)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+  let lastIndex = 0;
+  let result = "";
+  let match;
+  while ((match = regex.exec(code)) !== null) {
+    if (match.index > lastIndex) {
+      result += escapeHtml(code.slice(lastIndex, match.index));
+    }
+    const [full, com, tag, attr, val] = match;
+    if (com) result += `<span class="tok-com">${escapeHtml(full)}</span>`;
+    else if (tag) result += `<span class="tok-tag">${escapeHtml(full)}</span>`;
+    else if (attr) result += `<span class="tok-attr">${escapeHtml(full)}</span>`;
+    else if (val) result += `<span class="tok-str">${escapeHtml(full)}</span>`;
+    else result += escapeHtml(full);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < code.length) {
+    result += escapeHtml(code.slice(lastIndex));
+  }
+  return result;
+}
+
+function highlightJson(code) {
+  const regex = /("(?:\\.|[^"\\])*")(\s*:)?|(\b(?:true|false|null)\b)|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g;
+  let lastIndex = 0;
+  let result = "";
+  let match;
+  while ((match = regex.exec(code)) !== null) {
+    if (match.index > lastIndex) {
+      result += escapeHtml(code.slice(lastIndex, match.index));
+    }
+    const [full, str, colon, lit, num] = match;
+    if (str) {
+      if (colon) result += `<span class="tok-type">${escapeHtml(str)}</span>:`;
+      else result += `<span class="tok-str">${escapeHtml(str)}</span>`;
+    } else if (lit) {
+      result += `<span class="tok-bool">${escapeHtml(lit)}</span>`;
+    } else if (num) {
+      result += `<span class="tok-num">${escapeHtml(num)}</span>`;
+    } else {
+      result += escapeHtml(full);
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < code.length) {
+    result += escapeHtml(code.slice(lastIndex));
+  }
+  return result;
+}
+
+function highlightMarkdown(code) {
+  return escapeHtml(code)
+    .replace(/^(#{1,6}\s+.*)$/gm, '<span class="tok-fn">$1</span>')
+    .replace(/(`[^`]+`)/g, '<span class="tok-str">$1</span>')
+    .replace(/(\*\*.*?\*\*)/g, '<span class="tok-kw">$1</span>');
+}
+
+function highlightSyntax(code, language) {
+  if (!code) return "";
+  let highlighted = "";
+  switch (language) {
+    case "CSS":
+      highlighted = highlightCss(code);
+      break;
+    case "HTML":
+      highlighted = highlightHtml(code);
+      break;
+    case "JSON":
+      highlighted = highlightJson(code);
+      break;
+    case "Markdown":
+      highlighted = highlightMarkdown(code);
+      break;
+    default:
+      highlighted = highlightJs(code);
+      break;
+  }
+  if (code.endsWith("\n")) {
+    highlighted += " ";
+  }
+  return highlighted;
 }
 
 function getFileExtension(path) {
@@ -413,22 +607,77 @@ function renderSearchPanel() {
 }
 
 function renderSourcePanel() {
+  const dirtyFiles = Object.keys(state.files).filter((path) => isDirty(path));
+  const count = dirtyFiles.length;
+
   elements.sidebar.innerHTML = `<div class="sidebar-content">
-    <div class="panel-title-row"><span class="panel-title">Source control</span><span class="section-meta">main</span></div>
+    <div class="panel-title-row">
+      <span class="panel-title">Source control</span>
+      <span class="section-meta">main</span>
+    </div>
+    <div class="source-commit-box">
+      <input type="text" id="source-commit-input" class="source-commit-input" placeholder="Message (⌘Enter to commit)" autocomplete="off" spellcheck="false" />
+      <button type="button" id="source-commit-btn" class="source-commit-btn">
+        ${svgIcon("play")} <span>Commit to main</span>
+      </button>
+    </div>
     <div class="source-list">
-      <div class="source-row">${svgIcon("symbol")}<span class="source-copy"><strong>Changes</strong><span>2 files ready to review</span></span><span class="source-state">2</span></div>
-      ${sourceFileRow("src/app.js", "Modified")}
-      ${sourceFileRow("styles.css", "Modified")}
-      <button class="source-row" type="button" id="commit-button">${svgIcon("play")}<span class="source-copy"><strong>Commit staged changes</strong><span>Use the current workspace state</span></span></button>
+      <div class="source-row">
+        ${svgIcon("symbol")}
+        <span class="source-copy">
+          <strong>Changes</strong>
+          <span>${count ? `${count} file${count === 1 ? "" : "s"} ready to review` : "Working tree is clean"}</span>
+        </span>
+        <span class="source-state">${count}</span>
+      </div>
+      ${
+        count
+          ? dirtyFiles.map((path) => sourceFileRow(path, "Modified")).join("")
+          : `<div class="sidebar-footer-note">${svgIcon("symbol")}<span>No local changes detected.</span></div>`
+      }
     </div>
     <div class="sidebar-spacer"></div>
-    <div class="sidebar-footer-note">${svgIcon("symbol")}<span>Changes are shown locally before they move anywhere.</span></div>
+    <div class="sidebar-footer-note">${svgIcon("symbol")}<span>Click any modified file to view visual line diffs.</span></div>
   </div>`;
-  elements.sidebar.querySelector("#commit-button").addEventListener("click", () => showToast("No remote is connected — changes remain local"));
+
+  const commitInput = elements.sidebar.querySelector("#source-commit-input");
+  const commitBtn = elements.sidebar.querySelector("#source-commit-btn");
+
+  const handleCommit = () => {
+    if (dirtyFiles.length === 0) {
+      showToast("No changes to commit");
+      return;
+    }
+    const message = (commitInput?.value || "").trim() || "Update files";
+    for (const path of dirtyFiles) {
+      state.originals[path] = state.files[path];
+    }
+    persistState();
+    renderTabs();
+    renderOpenEditors();
+    renderSourcePanel();
+    showToast(`Committed: "${message}"`);
+  };
+
+  if (commitBtn) commitBtn.addEventListener("click", handleCommit);
+  if (commitInput) {
+    commitInput.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleCommit();
+      }
+    });
+  }
+
+  elements.sidebar.querySelectorAll(".source-row[data-file]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openDiffModal(btn.dataset.file);
+    });
+  });
 }
 
 function sourceFileRow(path, stateLabel) {
-  return `<button class="source-row" type="button" data-file="${path}">${fileBadge(path)}<span class="source-copy"><strong>${path}</strong><span>${stateLabel}</span></span><span class="source-state">M</span></button>`;
+  return `<button class="source-row" type="button" data-file="${escapeHtml(path)}">${fileBadge(path)}<span class="source-copy"><strong>${escapeHtml(path)}</strong><span>${stateLabel}</span></span><span class="source-state">M</span></button>`;
 }
 
 function renderRunPanel() {
@@ -445,18 +694,79 @@ function renderRunPanel() {
   elements.sidebar.querySelector("#run-check-button").addEventListener("click", runProject);
 }
 
-function renderExtensionsPanel() {
+function renderExtensionsPanel(filterQuery = "") {
+  const query = filterQuery.toLowerCase().trim();
+  const list = AVAILABLE_EXTENSIONS.filter(
+    (ext) => !query || ext.name.toLowerCase().includes(query) || ext.desc.toLowerCase().includes(query),
+  );
+
   elements.sidebar.innerHTML = `<div class="sidebar-content">
-    <div class="panel-title-row"><span class="panel-title">Extensions</span><button class="panel-action" type="button" id="extension-search-button" aria-label="Search extensions" title="Search extensions">${svgIcon("search")}</button></div>
-    <div class="extension-list">
-      <div class="extension-row">${svgIcon("symbol")}<span class="extension-copy"><strong>Language tools</strong><span>JavaScript · CSS · Markdown</span></span><span class="extension-state">On</span></div>
-      <div class="extension-row">${svgIcon("terminal")}<span class="extension-copy"><strong>Terminal helpers</strong><span>Command palette integration</span></span><span class="extension-state">On</span></div>
-      <div class="extension-row">${svgIcon("file")}<span class="extension-copy"><strong>Workspace notes</strong><span>Local-only scratch files</span></span><span class="extension-state">On</span></div>
+    <div class="panel-title-row">
+      <span class="panel-title">Extensions</span>
+      <span class="section-meta">${state.installedExtensions.size} installed</span>
+    </div>
+    <div class="sidebar-search-box">
+      <div class="find-input-wrapper">
+        <input id="ext-search-input" type="text" placeholder="Search Extensions in Marketplace..." value="${escapeHtml(filterQuery)}" autocomplete="off" spellcheck="false" />
+      </div>
+    </div>
+    <div class="extension-gallery-list">
+      ${
+        list.length
+          ? list
+              .map((ext) => {
+                const isInstalled = state.installedExtensions.has(ext.id);
+                return `<div class="ext-card">
+                  <div class="ext-icon">${svgIcon(ext.icon)}</div>
+                  <div class="ext-details">
+                    <div class="ext-name">
+                      <span>${escapeHtml(ext.name)}</span>
+                    </div>
+                    <div class="ext-desc">${escapeHtml(ext.desc)}</div>
+                    <div class="ext-meta">
+                      <span>${ext.downloads} downloads</span>
+                      <span>★ ${ext.rating}</span>
+                      <button class="ext-btn${isInstalled ? " is-installed" : ""}" type="button" data-ext-id="${ext.id}">
+                        ${isInstalled ? "Disable" : "Install"}
+                      </button>
+                    </div>
+                  </div>
+                </div>`;
+              })
+              .join("")
+          : `<div class="sidebar-footer-note">${svgIcon("search")}<span>No extensions matched "${escapeHtml(filterQuery)}"</span></div>`
+      }
     </div>
     <div class="sidebar-spacer"></div>
-    <div class="sidebar-footer-note">${svgIcon("symbol")}<span>Extensions are represented as local capabilities.</span></div>
+    <div class="sidebar-footer-note">${svgIcon("symbol")}<span>S-IDE extensions run natively and sandboxed.</span></div>
   </div>`;
-  elements.sidebar.querySelector("#extension-search-button").addEventListener("click", () => showToast("Extension search is ready for a registry"));
+
+  const searchInput = elements.sidebar.querySelector("#ext-search-input");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      renderExtensionsPanel(e.target.value);
+      const newInput = elements.sidebar.querySelector("#ext-search-input");
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(newInput.value.length, newInput.value.length);
+      }
+    });
+  }
+
+  elements.sidebar.querySelectorAll("[data-ext-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const extId = btn.dataset.extId;
+      const ext = AVAILABLE_EXTENSIONS.find((e) => e.id === extId);
+      if (state.installedExtensions.has(extId)) {
+        state.installedExtensions.delete(extId);
+        showToast(`Disabled ${ext ? ext.name : extId}`);
+      } else {
+        state.installedExtensions.add(extId);
+        showToast(`Installed ${ext ? ext.name : extId}`);
+      }
+      renderExtensionsPanel(filterQuery);
+    });
+  });
 }
 
 function renderTabs() {
@@ -501,6 +811,9 @@ function renderOpenEditors() {
 function renderEditor() {
   const content = state.files[state.activeFile] ?? "";
   elements.editor.value = content;
+  if (elements.syntaxCode) {
+    elements.syntaxCode.innerHTML = highlightSyntax(content, currentMeta().language);
+  }
   elements.breadcrumbs.innerHTML = breadcrumbMarkup(state.activeFile);
   elements.languageStatus.textContent = currentMeta().language;
   renderLineNumbers();
@@ -796,6 +1109,28 @@ function executeCommand(id) {
     showToast("Choose a file from Explorer");
     return;
   }
+  if (id === "find-in-file") {
+    openFindWidget(false);
+    return;
+  }
+  if (id === "replace-in-file") {
+    openFindWidget(true);
+    return;
+  }
+  if (id === "go-to-line") {
+    promptGoToLine();
+    return;
+  }
+  if (id === "toggle-word-wrap") {
+    state.settings.wordWrap = !state.settings.wordWrap;
+    applySettings();
+    showToast(`Word wrap: ${state.settings.wordWrap ? "enabled" : "disabled"}`);
+    return;
+  }
+  if (id === "open-settings") {
+    openSettingsModal();
+    return;
+  }
   if (id === "toggle-terminal") {
     elements.terminal.classList.toggle("is-collapsed");
     if (!elements.terminal.classList.contains("is-collapsed")) elements.terminalInput.focus();
@@ -810,6 +1145,287 @@ function executeCommand(id) {
     return;
   }
   if (id === "new-file") createNewFile();
+}
+
+function computeSimpleDiff(originalText, currentText) {
+  const origLines = (originalText || "").split("\n");
+  const currLines = (currentText || "").split("\n");
+
+  const m = origLines.length;
+  const n = currLines.length;
+  const maxLines = 1500;
+  if (m > maxLines || n > maxLines) {
+    return currLines.map((text, idx) => ({ type: "added", origNum: "", currNum: idx + 1, text }));
+  }
+
+  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (origLines[i - 1] === currLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  let i = m;
+  let j = n;
+  const rows = [];
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && origLines[i - 1] === currLines[j - 1]) {
+      rows.unshift({ type: "unchanged", origNum: i, currNum: j, text: origLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      rows.unshift({ type: "added", origNum: "", currNum: j, text: currLines[j - 1] });
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+      rows.unshift({ type: "removed", origNum: i, currNum: "", text: origLines[i - 1] });
+      i--;
+    }
+  }
+
+  return rows;
+}
+
+function openDiffModal(path) {
+  const orig = state.originals[path] ?? "";
+  const curr = state.files[path] ?? "";
+  const rows = computeSimpleDiff(orig, curr);
+
+  elements.diffTitle.textContent = path;
+  elements.diffBody.innerHTML = rows.length
+    ? rows
+        .map((r) => {
+          const sign = r.type === "added" ? "+" : r.type === "removed" ? "-" : " ";
+          const num = r.type === "added" ? r.currNum : r.type === "removed" ? r.origNum : r.currNum;
+          return `<div class="diff-row ${r.type}">
+            <span class="diff-gutter">${num}</span>
+            <span class="diff-sign">${sign}</span>
+            <span class="diff-text">${escapeHtml(r.text || " ")}</span>
+          </div>`;
+        })
+        .join("")
+    : '<div class="activity-note"><div><strong>Identical file</strong><p>No difference between working tree and original.</p></div></div>';
+
+  elements.diffModal.classList.remove("is-hidden");
+}
+
+function closeDiffModal() {
+  elements.diffModal.classList.add("is-hidden");
+}
+
+function openSettingsModal() {
+  elements.settingFontSize.value = String(state.settings.fontSize);
+  elements.settingTabSize.value = String(state.settings.tabSize);
+  elements.settingWordWrap.checked = Boolean(state.settings.wordWrap);
+  elements.settingMinimap.checked = Boolean(state.settings.showMinimap);
+  elements.settingTheme.value = state.settings.theme;
+  elements.settingsModal.classList.remove("is-hidden");
+}
+
+function closeSettingsModal() {
+  elements.settingsModal.classList.add("is-hidden");
+}
+
+function applySettings() {
+  document.documentElement.style.setProperty("--editor-font-size", `${state.settings.fontSize}px`);
+  document.documentElement.style.setProperty("--editor-tab-size", `${state.settings.tabSize}`);
+
+  elements.editor.classList.toggle("word-wrap", state.settings.wordWrap);
+  if (elements.syntaxBackdrop) {
+    elements.syntaxBackdrop.classList.toggle("word-wrap", state.settings.wordWrap);
+  }
+  elements.editorSurface.classList.toggle("hide-minimap", !state.settings.showMinimap);
+
+  if (state.settings.theme === "dark-plus") {
+    document.body.removeAttribute("data-theme");
+  } else {
+    document.body.setAttribute("data-theme", state.settings.theme);
+  }
+
+  persistSettings();
+}
+
+function persistSettings() {
+  try {
+    window.localStorage.setItem("s_ide_settings", JSON.stringify(state.settings));
+  } catch {}
+}
+
+function restoreSettings() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem("s_ide_settings") || "null");
+    if (saved) {
+      state.settings = { ...state.settings, ...saved };
+    }
+  } catch {}
+  applySettings();
+}
+
+function openFindWidget(withReplace = false) {
+  elements.findWidget.classList.remove("is-hidden");
+  if (withReplace) {
+    elements.replaceWidgetRow.classList.remove("is-hidden");
+    elements.findToggleReplace.classList.add("is-expanded");
+  }
+  const selStart = elements.editor.selectionStart;
+  const selEnd = elements.editor.selectionEnd;
+  if (selEnd > selStart) {
+    const selectedText = elements.editor.value.slice(selStart, selEnd);
+    if (!selectedText.includes("\n")) {
+      elements.findInput.value = selectedText;
+    }
+  }
+  elements.findInput.select();
+  updateFindMatches();
+}
+
+function closeFindWidget() {
+  elements.findWidget.classList.add("is-hidden");
+  elements.editor.focus();
+}
+
+function toggleReplaceRow() {
+  const isHidden = elements.replaceWidgetRow.classList.toggle("is-hidden");
+  elements.findToggleReplace.classList.toggle("is-expanded", !isHidden);
+  if (!isHidden) elements.replaceInput.focus();
+}
+
+function updateFindMatches() {
+  const query = elements.findInput.value;
+  state.find.query = query;
+  state.find.matches = [];
+  state.find.currentIndex = -1;
+
+  if (!query) {
+    elements.findMatchCount.textContent = "No results";
+    return;
+  }
+
+  const text = elements.editor.value;
+  const flags = state.find.matchCase ? "g" : "gi";
+  let pattern = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (state.find.matchWord) {
+    pattern = `\\b${pattern}\\b`;
+  }
+
+  try {
+    const regex = new RegExp(pattern, flags);
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      state.find.matches.push({
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    }
+  } catch {
+    // regex error
+  }
+
+  if (state.find.matches.length > 0) {
+    const cursor = elements.editor.selectionStart;
+    let closest = 0;
+    for (let i = 0; i < state.find.matches.length; i++) {
+      if (state.find.matches[i].start >= cursor) {
+        closest = i;
+        break;
+      }
+    }
+    state.find.currentIndex = closest;
+    elements.findMatchCount.textContent = `${state.find.currentIndex + 1} of ${state.find.matches.length}`;
+    highlightCurrentMatch();
+  } else {
+    elements.findMatchCount.textContent = "No results";
+  }
+}
+
+function highlightCurrentMatch() {
+  if (state.find.currentIndex < 0 || state.find.currentIndex >= state.find.matches.length) return;
+  const match = state.find.matches[state.find.currentIndex];
+  elements.editor.focus();
+  elements.editor.setSelectionRange(match.start, match.end);
+
+  const line = elements.editor.value.slice(0, match.start).split("\n").length;
+  const lineHeight = Number.parseFloat(window.getComputedStyle(elements.editor).lineHeight) || 22.1;
+  const targetScroll = Math.max(0, (line - 4) * lineHeight);
+  elements.editor.scrollTop = targetScroll;
+  if (elements.syntaxBackdrop) elements.syntaxBackdrop.scrollTop = targetScroll;
+  elements.lineNumbers.scrollTop = targetScroll;
+  updateCursorPosition();
+}
+
+function findNextMatch() {
+  if (state.find.matches.length === 0) return;
+  state.find.currentIndex = (state.find.currentIndex + 1) % state.find.matches.length;
+  elements.findMatchCount.textContent = `${state.find.currentIndex + 1} of ${state.find.matches.length}`;
+  highlightCurrentMatch();
+}
+
+function findPrevMatch() {
+  if (state.find.matches.length === 0) return;
+  state.find.currentIndex = (state.find.currentIndex - 1 + state.find.matches.length) % state.find.matches.length;
+  elements.findMatchCount.textContent = `${state.find.currentIndex + 1} of ${state.find.matches.length}`;
+  highlightCurrentMatch();
+}
+
+function replaceCurrentMatch() {
+  if (state.find.currentIndex < 0 || state.find.currentIndex >= state.find.matches.length) return;
+  const match = state.find.matches[state.find.currentIndex];
+  const replaceVal = elements.replaceInput.value;
+  const before = elements.editor.value.slice(0, match.start);
+  const after = elements.editor.value.slice(match.end);
+  elements.editor.value = before + replaceVal + after;
+  state.files[state.activeFile] = elements.editor.value;
+
+  if (elements.syntaxCode) {
+    elements.syntaxCode.innerHTML = highlightSyntax(elements.editor.value, currentMeta().language);
+  }
+  renderLineNumbers();
+  renderMinimap();
+  renderOutline();
+  renderTabs();
+  renderOpenEditors();
+  persistState();
+  updateFindMatches();
+}
+
+function replaceAllMatches() {
+  if (state.find.matches.length === 0) return;
+  const replaceVal = elements.replaceInput.value;
+  const count = state.find.matches.length;
+
+  const flags = state.find.matchCase ? "g" : "gi";
+  let pattern = state.find.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (state.find.matchWord) pattern = `\\b${pattern}\\b`;
+  const regex = new RegExp(pattern, flags);
+
+  elements.editor.value = elements.editor.value.replace(regex, replaceVal);
+  state.files[state.activeFile] = elements.editor.value;
+
+  if (elements.syntaxCode) {
+    elements.syntaxCode.innerHTML = highlightSyntax(elements.editor.value, currentMeta().language);
+  }
+  renderLineNumbers();
+  renderMinimap();
+  renderOutline();
+  renderTabs();
+  renderOpenEditors();
+  persistState();
+  updateFindMatches();
+  showToast(`Replaced ${count} occurrence${count === 1 ? "" : "s"}`);
+}
+
+function promptGoToLine() {
+  const lineInput = window.prompt(`Go to Line (1 - ${elements.editor.value.split("\n").length}):`);
+  if (!lineInput) return;
+  const num = parseInt(lineInput.trim(), 10);
+  if (Number.isFinite(num) && num > 0) {
+    focusLine(num);
+  }
 }
 
 function persistState() {
@@ -876,8 +1492,8 @@ function bindEvents() {
   document.querySelector("#clear-terminal").addEventListener("click", clearTerminal);
   document.querySelector("#split-editor-button").addEventListener("click", () => showToast("Split editor is ready for another file"));
   document.querySelector("#more-editor-button").addEventListener("click", openCommandPalette);
-  document.querySelector("#settings-button").addEventListener("click", () => showToast("Editor settings are local to this workspace"));
-  document.querySelector("#help-button").addEventListener("click", () => showToast("Try ⌘ P, ⌘ S, or the Run button"));
+  document.querySelector("#settings-button").addEventListener("click", openSettingsModal);
+  document.querySelector("#help-button").addEventListener("click", () => showToast("Try ⌘ P, ⌘ F, ⌘ ,, or the Run button"));
   document.querySelector("#workspace-menu-button").addEventListener("click", openFolder);
   document.querySelector("#profile-button").addEventListener("click", () => showToast("S-IDE · Tatvagna Tandel"));
   document.querySelectorAll("[data-terminal-tab]").forEach((tab) => tab.addEventListener("click", () => setTerminalMode(tab.dataset.terminalTab)));
@@ -886,8 +1502,77 @@ function bindEvents() {
     elements.openFolderButton.addEventListener("click", openFolder);
   }
 
+  // Find & Replace widget events
+  elements.findClose.addEventListener("click", closeFindWidget);
+  elements.findNext.addEventListener("click", findNextMatch);
+  elements.findPrev.addEventListener("click", findPrevMatch);
+  elements.findToggleReplace.addEventListener("click", toggleReplaceRow);
+  elements.replaceOne.addEventListener("click", replaceCurrentMatch);
+  elements.replaceAll.addEventListener("click", replaceAllMatches);
+  elements.findInput.addEventListener("input", updateFindMatches);
+  elements.findInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) findPrevMatch();
+      else findNextMatch();
+    }
+    if (e.key === "Escape") closeFindWidget();
+  });
+  elements.replaceInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      replaceCurrentMatch();
+    }
+    if (e.key === "Escape") closeFindWidget();
+  });
+  elements.findCaseToggle.addEventListener("click", () => {
+    state.find.matchCase = !state.find.matchCase;
+    elements.findCaseToggle.classList.toggle("is-active", state.find.matchCase);
+    updateFindMatches();
+  });
+  elements.findWordToggle.addEventListener("click", () => {
+    state.find.matchWord = !state.find.matchWord;
+    elements.findWordToggle.classList.toggle("is-active", state.find.matchWord);
+    updateFindMatches();
+  });
+
+  // Diff Modal events
+  elements.diffClose.addEventListener("click", closeDiffModal);
+  elements.diffModal.addEventListener("click", (e) => {
+    if (e.target === elements.diffModal) closeDiffModal();
+  });
+
+  // Settings Modal events
+  elements.settingsClose.addEventListener("click", closeSettingsModal);
+  elements.settingsModal.addEventListener("click", (e) => {
+    if (e.target === elements.settingsModal) closeSettingsModal();
+  });
+  elements.settingFontSize.addEventListener("change", (e) => {
+    state.settings.fontSize = Number(e.target.value);
+    applySettings();
+  });
+  elements.settingTabSize.addEventListener("change", (e) => {
+    state.settings.tabSize = Number(e.target.value);
+    applySettings();
+  });
+  elements.settingWordWrap.addEventListener("change", (e) => {
+    state.settings.wordWrap = e.target.checked;
+    applySettings();
+  });
+  elements.settingMinimap.addEventListener("change", (e) => {
+    state.settings.showMinimap = e.target.checked;
+    applySettings();
+  });
+  elements.settingTheme.addEventListener("change", (e) => {
+    state.settings.theme = e.target.value;
+    applySettings();
+  });
+
   elements.editor.addEventListener("input", () => {
     state.files[state.activeFile] = elements.editor.value;
+    if (elements.syntaxCode) {
+      elements.syntaxCode.innerHTML = highlightSyntax(elements.editor.value, currentMeta().language);
+    }
     renderLineNumbers();
     renderMinimap();
     renderOutline();
@@ -895,13 +1580,34 @@ function bindEvents() {
     renderOpenEditors();
     updateCursorPosition();
     persistState();
+    if (!elements.findWidget.classList.contains("is-hidden")) {
+      updateFindMatches();
+    }
   });
   elements.editor.addEventListener("click", updateCursorPosition);
   elements.editor.addEventListener("keyup", updateCursorPosition);
   elements.editor.addEventListener("scroll", () => {
     elements.lineNumbers.scrollTop = elements.editor.scrollTop;
     elements.minimap.scrollTop = elements.editor.scrollTop;
+    if (elements.syntaxBackdrop) {
+      elements.syntaxBackdrop.scrollTop = elements.editor.scrollTop;
+      elements.syntaxBackdrop.scrollLeft = elements.editor.scrollLeft;
+    }
   });
+
+  // Support tab indentation in editor
+  elements.editor.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const start = elements.editor.selectionStart;
+      const end = elements.editor.selectionEnd;
+      const spaces = " ".repeat(state.settings.tabSize || 2);
+      elements.editor.value = elements.editor.value.substring(0, start) + spaces + elements.editor.value.substring(end);
+      elements.editor.selectionStart = elements.editor.selectionEnd = start + spaces.length;
+      elements.editor.dispatchEvent(new Event("input"));
+    }
+  });
+
   elements.terminalForm.addEventListener("submit", (event) => {
     event.preventDefault();
     runTerminalCommand(elements.terminalInput.value);
@@ -948,17 +1654,57 @@ function bindEvents() {
       event.preventDefault();
       saveCurrentFile();
     }
+    if (modifier && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      openFindWidget(false);
+    }
+    if (modifier && event.key.toLowerCase() === "h") {
+      event.preventDefault();
+      openFindWidget(true);
+    }
+    if (modifier && event.key === ",") {
+      event.preventDefault();
+      openSettingsModal();
+    }
+    if (modifier && event.key.toLowerCase() === "g") {
+      event.preventDefault();
+      promptGoToLine();
+    }
+    if (event.altKey && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      state.settings.wordWrap = !state.settings.wordWrap;
+      applySettings();
+      showToast(`Word wrap: ${state.settings.wordWrap ? "enabled" : "disabled"}`);
+    }
     if (modifier && event.key === "`" && !elements.commandPalette.classList.contains("is-hidden")) return;
     if (modifier && event.key === "`") {
       event.preventDefault();
       elements.terminal.classList.toggle("is-collapsed");
     }
-    if (event.key === "Escape" && !elements.commandPalette.classList.contains("is-hidden")) closeCommandPalette();
+    if (event.key === "Escape") {
+      if (!elements.diffModal.classList.contains("is-hidden")) {
+        closeDiffModal();
+        return;
+      }
+      if (!elements.settingsModal.classList.contains("is-hidden")) {
+        closeSettingsModal();
+        return;
+      }
+      if (!elements.findWidget.classList.contains("is-hidden")) {
+        closeFindWidget();
+        return;
+      }
+      if (!elements.commandPalette.classList.contains("is-hidden")) {
+        closeCommandPalette();
+        return;
+      }
+    }
   });
 }
 
 initElectronBridge();
 restoreState();
+restoreSettings();
 bindEvents();
 renderSidebar("explorer");
 renderTabs();
