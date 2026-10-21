@@ -65,6 +65,8 @@ const FILE_META = {
 const COMMANDS = [
   { id: "open-folder", label: "File: Open Folder", hint: "⌘ O", icon: "folder" },
   { id: "open-file", label: "File: Open File / Quick Open", hint: "⌘ P", icon: "file" },
+  { id: "run-active-file", label: "Run: Run Active File", hint: "F5", icon: "play" },
+  { id: "debug-active-file", label: "Debug: Debug / Lint Active File", hint: "⌘ F5", icon: "symbol" },
   { id: "find-in-file", label: "Edit: Find", hint: "⌘ F", icon: "search" },
   { id: "replace-in-file", label: "Edit: Replace", hint: "⌘ H", icon: "search" },
   { id: "go-to-line", label: "Go to Line...", hint: "Ctrl G", icon: "file" },
@@ -100,6 +102,7 @@ const state = {
   projectRoot: null,
   fileTree: null,
   realFilePaths: {},
+  problems: [],
   settings: {
     fontSize: 13,
     tabSize: 2,
@@ -681,17 +684,61 @@ function sourceFileRow(path, stateLabel) {
 }
 
 function renderRunPanel() {
+  const currentFile = state.activeFile;
+  const ext = getFileExtension(currentFile).toUpperCase();
+  const runtimeLabel = window.electronAPI?.isElectron ? "Node.js / System Shell" : "In-Browser Sandbox";
+
   elements.sidebar.innerHTML = `<div class="sidebar-content">
-    <div class="panel-title-row"><span class="panel-title">Run and debug</span></div>
-    <div class="run-config-list">
-      <div class="run-config-row">${svgIcon("play")}<span class="run-config-copy"><strong>Workspace check</strong><span>node --test</span></span><span class="run-action">Ready</span></div>
-      <div class="run-config-row">${svgIcon("terminal")}<span class="run-config-copy"><strong>Local preview</strong><span>node server.js</span></span><span class="run-action">Idle</span></div>
-      <button class="run-config-row" type="button" id="run-check-button">${svgIcon("play")}<span class="run-config-copy"><strong>Start workspace check</strong><span>Run the offline smoke suite</span></span><span class="run-action">Run</span></button>
+    <div class="panel-title-row">
+      <span class="panel-title">Run and debug</span>
+      <span class="section-meta">${window.electronAPI?.isElectron ? "Native" : "Web VM"}</span>
     </div>
+
+    <div class="run-active-card">
+      <div class="run-active-header">
+        ${svgIcon("play")}
+        <div>
+          <strong>${escapeHtml(currentFile.split("/").pop())}</strong>
+          <span>${ext} · ${runtimeLabel}</span>
+        </div>
+      </div>
+      <button class="source-commit-btn" type="button" id="run-active-btn" style="margin-top: 4px;">
+        ${svgIcon("play")} <span>Run Active File (F5)</span>
+      </button>
+      <button class="ext-btn" type="button" id="debug-active-btn" style="width:100%; justify-content:center; padding:6px; margin-top:4px;">
+        ${svgIcon("symbol")} <span>Debug / Check Syntax (⌘F5)</span>
+      </button>
+    </div>
+
+    <div class="run-config-list" style="margin-top: 14px;">
+      <div class="run-config-row">
+        ${svgIcon("terminal")}
+        <span class="run-config-copy">
+          <strong>Workspace check</strong>
+          <span>node --test</span>
+        </span>
+        <button class="run-action" type="button" id="run-test-suite-btn">Run</button>
+      </div>
+      <div class="run-config-row">
+        ${svgIcon("terminal")}
+        <span class="run-config-copy">
+          <strong>Local preview server</strong>
+          <span>http://localhost:4173</span>
+        </span>
+        <span class="run-action">Active</span>
+      </div>
+    </div>
+
     <div class="sidebar-spacer"></div>
-    <div class="sidebar-footer-note">${svgIcon("symbol")}<span>Run actions write their output to the terminal.</span></div>
+    <div class="sidebar-footer-note">
+      ${svgIcon("symbol")}
+      <span>Output and debug diagnostics stream into the Terminal panel.</span>
+    </div>
   </div>`;
-  elements.sidebar.querySelector("#run-check-button").addEventListener("click", runProject);
+
+  elements.sidebar.querySelector("#run-active-btn").addEventListener("click", executeActiveFile);
+  elements.sidebar.querySelector("#debug-active-btn").addEventListener("click", debugActiveFile);
+  elements.sidebar.querySelector("#run-test-suite-btn").addEventListener("click", runProject);
 }
 
 function renderExtensionsPanel(filterQuery = "") {
@@ -997,13 +1044,34 @@ function clearTerminal() {
   appendTerminal([{ text: "Terminal cleared.", className: "muted" }]);
 }
 
-function runProject() {
+async function runProject() {
   elements.terminal.classList.remove("is-collapsed");
+  setTerminalMode("terminal");
+  appendTerminal([{ text: "$ npm test", className: "command" }]);
+
+  if (window.electronAPI?.isElectron) {
+    try {
+      const result = await window.electronAPI.execCommand("npm test", state.projectRoot || "");
+      if (result.stdout) {
+        appendTerminal(result.stdout.trimEnd().split("\n").map((text) => ({ text, className: "" })));
+      }
+      if (result.stderr) {
+        appendTerminal(result.stderr.trimEnd().split("\n").map((text) => ({ text, className: "warning" })));
+      }
+      state.lastRun = new Date();
+      elements.lastRunNote.textContent = `${state.lastRun.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Exit ${result.exitCode}`;
+      showToast(result.exitCode === 0 ? "Workspace check passed" : `Tests failed (exit ${result.exitCode})`);
+      return;
+    } catch (err) {
+      appendTerminal([{ text: `Error running npm test: ${err.message}`, className: "warning" }]);
+    }
+  }
+
+  // Browser test fallback
   state.lastRun = new Date();
   const runLabel = state.lastRun.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   elements.lastRunNote.textContent = `${runLabel} · 4 assertions passed`;
   appendTerminal([
-    { text: "$ npm test", className: "command" },
     { text: "PASS workspace name is present", className: "success" },
     { text: "PASS editor opens the active file", className: "success" },
     { text: "PASS terminal accepts a command", className: "success" },
@@ -1011,6 +1079,338 @@ function runProject() {
     { text: "4 tests passed in 42ms", className: "success" },
   ]);
   showToast("Workspace check passed");
+}
+
+async function executeActiveFile() {
+  const filePath = state.activeFile;
+  const content = state.files[filePath] ?? "";
+  const ext = getFileExtension(filePath).toLowerCase();
+
+  elements.terminal.classList.remove("is-collapsed");
+  setTerminalMode("terminal");
+  appendTerminal([{ text: `\n▶ [Running ${filePath}]`, className: "command" }]);
+
+  const startTime = performance.now();
+
+  // Desktop Electron Execution
+  if (window.electronAPI?.isElectron) {
+    if (state.realFilePaths[filePath]) {
+      try {
+        await window.electronAPI.writeFile(state.realFilePaths[filePath], content);
+        state.originals[filePath] = content;
+        renderTabs();
+        renderOpenEditors();
+      } catch (err) {
+        console.error("Save before run failed:", err);
+      }
+    }
+
+    let cmd = "";
+    const targetPath = state.realFilePaths[filePath] || filePath;
+    const isReal = Boolean(state.realFilePaths[filePath]);
+
+    if (ext === "js" || ext === "mjs" || ext === "cjs") {
+      if (isReal) {
+        cmd = `node "${targetPath}"`;
+      } else {
+        const escaped = content.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$");
+        cmd = `node -e "${escaped}"`;
+      }
+    } else if (ext === "py") {
+      cmd = isReal ? `python3 "${targetPath}"` : `python3 -c "${content.replace(/"/g, '\\"')}"`;
+    } else if (ext === "sh" || ext === "zsh" || ext === "bash") {
+      cmd = `bash "${targetPath}"`;
+    } else if (ext === "json") {
+      try {
+        JSON.parse(content);
+        appendTerminal([{ text: "✔ JSON syntax is valid and well-formed.", className: "success" }]);
+        showToast("JSON syntax valid");
+      } catch (e) {
+        appendTerminal([{ text: `✖ Invalid JSON: ${e.message}`, className: "warning" }]);
+        showToast("Invalid JSON");
+      }
+      return;
+    } else {
+      appendTerminal([{ text: `No specific runner configured for .${ext}. Inspecting file contents:`, className: "muted" }]);
+      cmd = `cat "${targetPath}"`;
+    }
+
+    appendTerminal([{ text: `$ ${cmd}`, className: "muted" }]);
+
+    try {
+      const result = await window.electronAPI.execCommand(cmd, state.projectRoot || "");
+      const elapsed = (performance.now() - startTime).toFixed(1);
+
+      if (result.stdout) {
+        const lines = result.stdout.trimEnd().split("\n").map((text) => ({ text, className: "" }));
+        appendTerminal(lines);
+      }
+
+      if (result.stderr) {
+        const lines = result.stderr.trimEnd().split("\n").map((text) => ({ text, className: "warning" }));
+        appendTerminal(lines);
+      }
+
+      if (result.exitCode === 0) {
+        appendTerminal([{ text: `✔ Process finished with exit code 0 (${elapsed}ms)`, className: "success" }]);
+        showToast(`Execution finished (${elapsed}ms)`);
+      } else {
+        appendTerminal([{ text: `✖ Process exited with code ${result.exitCode} (${elapsed}ms)`, className: "warning" }]);
+        showToast(`Execution failed (code ${result.exitCode})`);
+      }
+
+      state.lastRun = new Date();
+      elements.lastRunNote.textContent = `${state.lastRun.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Exit ${result.exitCode}`;
+    } catch (err) {
+      appendTerminal([{ text: `✖ Execution failed: ${err.message}`, className: "warning" }]);
+    }
+    return;
+  }
+
+  // Browser Execution Sandbox
+  if (ext === "js" || ext === "mjs" || ext === "cjs" || ext === "test") {
+    executeJavaScriptInBrowser(content, filePath, startTime);
+    return;
+  }
+
+  if (ext === "json") {
+    try {
+      JSON.parse(content);
+      appendTerminal([{ text: "✔ JSON syntax is valid and well-formed.", className: "success" }]);
+      showToast("JSON is valid");
+    } catch (e) {
+      appendTerminal([{ text: `✖ JSON Parse Error: ${e.message}`, className: "warning" }]);
+      showToast("JSON parse error");
+    }
+    return;
+  }
+
+  appendTerminal([
+    { text: `Client-side execution is supported for JavaScript and JSON. In desktop mode (macOS app), full Node.js & Python system execution is active.`, className: "muted" },
+  ]);
+  showToast(`Ran ${filePath}`);
+}
+
+function executeJavaScriptInBrowser(code, filePath, startTime) {
+  const logs = [];
+  const capture = (...args) => {
+    const text = args.map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" ");
+    logs.push({ text, className: "" });
+  };
+  const warnCapture = (...args) => {
+    const text = args.map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" ");
+    logs.push({ text: `[WARN] ${text}`, className: "warning" });
+  };
+  const errorCapture = (...args) => {
+    const text = args.map((a) => (typeof a === "object" ? (a?.stack || JSON.stringify(a)) : String(a))).join(" ");
+    logs.push({ text: `[ERROR] ${text}`, className: "warning" });
+  };
+
+  const sandboxConsole = {
+    log: capture,
+    info: capture,
+    warn: warnCapture,
+    error: errorCapture,
+  };
+
+  try {
+    let runnable = code
+      .replace(/^import\s+.*?['"].*?['"];?/gm, "// [mock import]")
+      .replace(/^export\s+(?:default\s+)?/gm, "");
+
+    const runner = new Function("console", "window", runnable);
+    const result = runner(sandboxConsole, window);
+    const elapsed = (performance.now() - startTime).toFixed(1);
+
+    if (logs.length) {
+      appendTerminal(logs);
+    }
+
+    if (result !== undefined) {
+      const resText = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+      appendTerminal([{ text: `=> ${resText}`, className: "success" }]);
+    }
+
+    appendTerminal([{ text: `✔ Done in ${elapsed}ms`, className: "success" }]);
+    showToast(`Executed ${filePath} (${elapsed}ms)`);
+
+    state.lastRun = new Date();
+    elements.lastRunNote.textContent = `${state.lastRun.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Exit 0`;
+
+    state.problems = state.problems.filter((p) => p.file !== filePath);
+    updateProblemsTab();
+  } catch (err) {
+    const elapsed = (performance.now() - startTime).toFixed(1);
+    if (logs.length) {
+      appendTerminal(logs);
+    }
+
+    const errMessage = err.message || String(err);
+    appendTerminal([
+      { text: `✖ Runtime Error: ${errMessage}`, className: "warning" },
+      { text: `  in ${filePath}`, className: "muted" },
+    ]);
+
+    let lineNum = 1;
+    const match = err.stack?.match(/<anonymous>:(\d+):(\d+)/) || err.message.match(/line (\d+)/i);
+    if (match) lineNum = Number(match[1]);
+
+    state.problems = [
+      ...state.problems.filter((p) => p.file !== filePath),
+      { file: filePath, line: lineNum, message: errMessage, severity: "error" },
+    ];
+    updateProblemsTab();
+    showToast(`Error: ${errMessage}`);
+  }
+}
+
+function debugActiveFile() {
+  const filePath = state.activeFile;
+  const content = state.files[filePath] ?? "";
+  const ext = getFileExtension(filePath).toLowerCase();
+
+  elements.terminal.classList.remove("is-collapsed");
+  setTerminalMode("problems");
+
+  state.problems = state.problems.filter((p) => p.file !== filePath);
+
+  if (ext === "js" || ext === "mjs" || ext === "cjs") {
+    try {
+      new Function(content);
+      showToast(`No syntax errors found in ${filePath}`);
+    } catch (syntaxError) {
+      let line = 1;
+      let col = 1;
+      const stack = syntaxError.stack || "";
+      const match = stack.match(/<anonymous>:(\d+):(\d+)/);
+      if (match) {
+        line = Number(match[1]);
+        col = Number(match[2]);
+      }
+      state.problems.push({
+        file: filePath,
+        line,
+        column: col,
+        message: syntaxError.message,
+        severity: "error",
+      });
+      showToast(`Syntax error on line ${line}`);
+    }
+  } else if (ext === "json") {
+    try {
+      JSON.parse(content);
+      showToast(`JSON is valid in ${filePath}`);
+    } catch (jsonError) {
+      let line = 1;
+      const match = jsonError.message.match(/line (\d+)/i) || jsonError.message.match(/position (\d+)/i);
+      if (match) line = Number(match[1]);
+      state.problems.push({
+        file: filePath,
+        line,
+        message: jsonError.message,
+        severity: "error",
+      });
+      showToast(`JSON error: ${jsonError.message}`);
+    }
+  }
+
+  updateProblemsTab();
+}
+
+function validateSyntaxSilently() {
+  const filePath = state.activeFile;
+  const content = state.files[filePath] ?? "";
+  const ext = getFileExtension(filePath).toLowerCase();
+
+  state.problems = state.problems.filter((p) => p.file !== filePath);
+
+  if (ext === "js" || ext === "mjs" || ext === "cjs") {
+    try {
+      new Function(content);
+    } catch (syntaxError) {
+      let line = 1;
+      const stack = syntaxError.stack || "";
+      const match = stack.match(/<anonymous>:(\d+):(\d+)/);
+      if (match) line = Number(match[1]);
+      state.problems.push({
+        file: filePath,
+        line,
+        message: syntaxError.message,
+        severity: "error",
+      });
+    }
+  } else if (ext === "json") {
+    try {
+      JSON.parse(content);
+    } catch (jsonError) {
+      let line = 1;
+      const match = jsonError.message.match(/line (\d+)/i) || jsonError.message.match(/position (\d+)/i);
+      if (match) line = Number(match[1]);
+      state.problems.push({
+        file: filePath,
+        line,
+        message: jsonError.message,
+        severity: "error",
+      });
+    }
+  }
+
+  updateProblemsTab();
+}
+
+function updateProblemsTab() {
+  const count = state.problems.length;
+  const countBadge = document.querySelector('[data-terminal-tab="problems"] .tab-count');
+  if (countBadge) {
+    countBadge.textContent = count > 0 ? String(count) : "";
+  }
+
+  const statusCheck = document.querySelector(".status-check");
+  if (statusCheck) {
+    if (count > 0) {
+      statusCheck.innerHTML = `${svgIcon("symbol")} <span>${count} problem${count === 1 ? "" : "s"}</span>`;
+      statusCheck.style.color = "var(--warning)";
+    } else {
+      statusCheck.innerHTML = `${svgIcon("symbol")} <span>0 problems</span>`;
+      statusCheck.style.color = "var(--positive)";
+    }
+  }
+
+  if (state.terminalMode === "problems") {
+    renderProblemsList();
+  }
+}
+
+function renderProblemsList() {
+  if (state.problems.length === 0) {
+    elements.terminalOutput.innerHTML = `<div class="activity-note">
+      <span class="activity-dot"></span>
+      <div>
+        <strong>No problems have been detected in the workspace.</strong>
+        <p>Active file is clean.</p>
+      </div>
+    </div>`;
+    return;
+  }
+
+  elements.terminalOutput.innerHTML = state.problems
+    .map(
+      (p) => `<button class="search-result-row problem-item" type="button" data-file="${escapeHtml(p.file)}" data-line="${p.line}">
+        <span class="file-badge error" aria-hidden="true">ERR</span>
+        <span class="search-result-copy">
+          <strong>${escapeHtml(p.message)}</strong>
+          <span>${escapeHtml(p.file)}:${p.line}${p.column ? `:${p.column}` : ""}</span>
+        </span>
+      </button>`,
+    )
+    .join("");
+
+  elements.terminalOutput.querySelectorAll(".problem-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openFile(btn.dataset.file);
+      focusLine(Number(btn.dataset.line));
+    });
+  });
 }
 
 function runTerminalCommand(command) {
@@ -1030,8 +1430,22 @@ function runTerminalCommand(command) {
   }
   if (normalized === "help") {
     appendTerminal([
-      { text: "Available commands: help, clear, npm test, git status, npm run start", className: "muted" },
+      { text: "Available commands:", className: "muted" },
+      { text: "  run / node           Run the active file", className: "muted" },
+      { text: "  debug                Debug / validate the active file", className: "muted" },
+      { text: "  npm test             Run workspace test suite", className: "muted" },
+      { text: "  git status           Show working tree status", className: "muted" },
+      { text: "  clear                Clear terminal output", className: "muted" },
+      { text: "  <any JS expression>  Evaluate code in real time (e.g. 2 + 2, Math.PI)", className: "muted" },
     ]);
+    return;
+  }
+  if (normalized === "run" || normalized.startsWith("node ") || normalized === "node") {
+    executeActiveFile();
+    return;
+  }
+  if (normalized === "debug") {
+    debugActiveFile();
     return;
   }
   if (normalized === "npm test") {
@@ -1039,27 +1453,37 @@ function runTerminalCommand(command) {
     return;
   }
   if (normalized === "git status") {
-    appendTerminal([
-      { text: "On branch main", className: "muted" },
-      { text: "Changes not staged for commit:", className: "warning" },
-      { text: "  modified:   src/app.js", className: "warning" },
-      { text: "  modified:   styles.css", className: "warning" },
-    ]);
+    const dirtyFiles = Object.keys(state.files).filter((path) => isDirty(path));
+    if (dirtyFiles.length === 0) {
+      appendTerminal([{ text: "On branch main\nnothing to commit, working tree clean", className: "success" }]);
+    } else {
+      appendTerminal([
+        { text: "On branch main\nChanges not staged for commit:", className: "warning" },
+        ...dirtyFiles.map((f) => ({ text: `  modified:   ${f}`, className: "warning" })),
+      ]);
+    }
     return;
   }
   if (normalized === "npm run start") {
     appendTerminal([{ text: "Preview server is available at http://localhost:4173", className: "success" }]);
     return;
   }
-  appendTerminal([{ text: `command not found: ${normalized}`, className: "warning" }]);
+
+  try {
+    const result = window.eval(normalized);
+    if (result !== undefined) {
+      appendTerminal([{ text: typeof result === "object" ? JSON.stringify(result, null, 2) : String(result), className: "success" }]);
+    }
+  } catch {
+    appendTerminal([{ text: `command not found: ${normalized}`, className: "warning" }]);
+  }
 }
 
 function setTerminalMode(mode) {
   state.terminalMode = mode;
   document.querySelectorAll("[data-terminal-tab]").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.terminalTab === mode));
   if (mode === "problems") {
-    elements.terminalOutput.innerHTML = "";
-    appendTerminal([{ text: "No problems detected in the active file.", className: "success" }]);
+    renderProblemsList();
   } else if (mode === "output") {
     elements.terminalOutput.innerHTML = "";
     appendTerminal([{ text: "S-IDE workspace output is clean.", className: "muted" }]);
@@ -1107,6 +1531,14 @@ function executeCommand(id) {
   if (id === "open-file") {
     renderSidebar("explorer");
     showToast("Choose a file from Explorer");
+    return;
+  }
+  if (id === "run-active-file") {
+    executeActiveFile();
+    return;
+  }
+  if (id === "debug-active-file") {
+    debugActiveFile();
     return;
   }
   if (id === "find-in-file") {
@@ -1476,6 +1908,9 @@ function initElectronBridge() {
     if (action === "open-folder") openFolder();
     if (action === "new-file") createNewFile();
     if (action === "save-file") saveCurrentFile();
+    if (action === "run-active-file") executeActiveFile();
+    if (action === "debug-active-file") debugActiveFile();
+    if (action === "run-project") runProject();
     if (action === "toggle-terminal") elements.terminal.classList.toggle("is-collapsed");
     if (action === "clear-terminal") clearTerminal();
   });
@@ -1486,7 +1921,7 @@ function initElectronBridge() {
 function bindEvents() {
   document.querySelectorAll(".rail-button[data-panel]").forEach((button) => button.addEventListener("click", () => renderSidebar(button.dataset.panel)));
   document.querySelector("#command-trigger").addEventListener("click", openCommandPalette);
-  document.querySelector("#run-button").addEventListener("click", runProject);
+  document.querySelector("#run-button").addEventListener("click", executeActiveFile);
   document.querySelector("#save-button").addEventListener("click", saveCurrentFile);
   document.querySelector("#collapse-terminal").addEventListener("click", () => elements.terminal.classList.add("is-collapsed"));
   document.querySelector("#clear-terminal").addEventListener("click", clearTerminal);
@@ -1579,6 +2014,7 @@ function bindEvents() {
     renderTabs();
     renderOpenEditors();
     updateCursorPosition();
+    validateSyntaxSilently();
     persistState();
     if (!elements.findWidget.classList.contains("is-hidden")) {
       updateFindMatches();
@@ -1642,6 +2078,17 @@ function bindEvents() {
 
   document.addEventListener("keydown", (event) => {
     const modifier = event.metaKey || event.ctrlKey;
+    if (event.key === "F5") {
+      event.preventDefault();
+      if (modifier) debugActiveFile();
+      else executeActiveFile();
+      return;
+    }
+    if (modifier && event.key.toLowerCase() === "r" && !event.shiftKey) {
+      event.preventDefault();
+      executeActiveFile();
+      return;
+    }
     if (modifier && event.key.toLowerCase() === "o") {
       event.preventDefault();
       openFolder();

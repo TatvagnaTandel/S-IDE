@@ -182,6 +182,25 @@ function setupMenu() {
         },
       ],
     },
+    {
+      label: "Run",
+      submenu: [
+        {
+          label: "Run Active File",
+          accelerator: "F5",
+          click: () => mainWindow?.webContents.send("menu:action", "run-active-file"),
+        },
+        {
+          label: "Debug Active File",
+          accelerator: "CmdOrCtrl+F5",
+          click: () => mainWindow?.webContents.send("menu:action", "debug-active-file"),
+        },
+        {
+          label: "Run Workspace Tests",
+          click: () => mainWindow?.webContents.send("menu:action", "run-project"),
+        },
+      ],
+    },
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -285,9 +304,37 @@ ipcMain.handle("terminal:start", async (_event, cwd) => {
 });
 
 ipcMain.on("terminal:input", (_event, data) => {
+  if (!activeShell) {
+    startTerminalProcess();
+  }
   if (activeShell && activeShell.stdin && activeShell.stdin.writable) {
     activeShell.stdin.write(data);
   }
+});
+
+ipcMain.handle("system:exec", async (_event, command, cwd) => {
+  return new Promise((resolve) => {
+    const workingDir = cwd && fs.existsSync(cwd) ? cwd : (process.env.HOME || process.cwd());
+    childProcess.exec(
+      command,
+      {
+        cwd: workingDir,
+        env: {
+          ...process.env,
+          PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        resolve({
+          exitCode: error ? (error.code ?? 1) : 0,
+          stdout: stdout || "",
+          stderr: stderr || "",
+          error: error ? error.message : null,
+        });
+      }
+    );
+  });
 });
 
 app.whenReady().then(() => {

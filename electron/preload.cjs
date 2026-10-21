@@ -12,9 +12,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   createFile: (filePath, content) => ipcRenderer.invoke("fs:createFile", filePath, content),
   deleteFile: (filePath) => ipcRenderer.invoke("fs:deleteFile", filePath),
 
-  // Live Terminal
+  // Live Terminal & Process Execution
   startTerminal: (cwd) => ipcRenderer.invoke("terminal:start", cwd),
   sendTerminalInput: (data) => ipcRenderer.send("terminal:input", data),
+  execCommand: (command, cwd) => ipcRenderer.invoke("system:exec", command, cwd),
   onTerminalOutput: (callback) => {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on("terminal:output", handler);
